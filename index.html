@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מיקרופון חי - Live Microphone</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .microphone-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            font-size: 3rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 20px;
+            box-shadow: 0 10px 30px rgba(238, 90, 36, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .microphone-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(238, 90, 36, 0.6);
+        }
+
+        .microphone-button.active {
+            background: linear-gradient(45deg, #00d2ff, #3a7bd5);
+            animation: pulse 2s infinite;
+            box-shadow: 0 15px 40px rgba(58, 123, 213, 0.6);
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .status {
+            margin: 20px 0;
+            font-size: 1.2rem;
+            font-weight: bold;
+            min-height: 30px;
+        }
+
+        .status.inactive {
+            color: #666;
+        }
+
+        .status.active {
+            color: #00d2ff;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 5px #00d2ff; }
+            to { text-shadow: 0 0 20px #00d2ff, 0 0 30px #00d2ff; }
+        }
+
+        .controls {
+            margin-top: 30px;
+        }
+
+        .volume-control {
+            margin: 15px 0;
+        }
+
+        .volume-control label {
+            display: block;
+            margin-bottom: 10px;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .volume-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+        }
+
+        .volume-slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+        }
+
+        .latency-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 10px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .error {
+            color: #ff4757;
+            background: rgba(255, 71, 87, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }
+
+        .bluetooth-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(52, 172, 224, 0.1);
+            border-radius: 10px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 מיקרופון חי</h1>
+        
+        <button class="microphone-button" id="micButton">
+            🎤
+        </button>
+
+        <div class="status inactive" id="status">לחץ להתחלה</div>
+
+        <div class="controls">
+            <div class="volume-control">
+                <label for="volumeSlider">עוצמת קול (Volume):</label>
+                <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="70">
+                <span id="volumeValue">70%</span>
+            </div>
+        </div>
+
+        <div class="latency-info">
+            השהיה מינימלית: ~20-50ms<br>
+            מתאים לשימוש עם בלוטוס
+        </div>
+
+        <div class="bluetooth-info">
+            💡 טיפ: חבר אוזניות בלוטוס או רמקול לפני ההתחלה<br>
+            הקול ישמע דרך המכשיר המחובר
+        </div>
+
+        <div class="error" id="errorMessage" style="display: none;"></div>
+    </div>
+
+    <script>
+        let audioContext;
+        let mediaStream;
+        let isActive = false;
+        let gainNode;
+
+        const micButton = document.getElementById('micButton');
+        const status = document.getElementById('status');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const volumeValue = document.getElementById('volumeValue');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // Volume control
+        volumeSlider.addEventListener('input', function() {
+            const volume = this.value;
+            volumeValue.textContent = volume + '%';
+            
+            if (gainNode) {
+                gainNode.gain.value = volume / 100;
+            }
+        });
+
+        micButton.addEventListener('click', async function() {
+            if (!isActive) {
+                await startMicrophone();
+            } else {
+                stopMicrophone();
+            }
+        });
+
+        async function startMicrophone() {
+            try {
+                errorMessage.style.display = 'none';
+
+                // Request microphone access with optimal settings for low latency
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        latency: 0,
+                        sampleRate: 44100
+                    }
+                });
+
+                // Create audio context with low latency settings
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    latencyHint: 'interactive',
+                    sampleRate: 44100
+                });
+
+                // Create audio nodes for processing
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                gainNode = audioContext.createGain();
+                const destination = audioContext.destination;
+
+                // Set initial volume
+                gainNode.gain.value = volumeSlider.value / 100;
+
+                // Connect the audio chain: microphone -> gain -> speakers
+                source.connect(gainNode);
+                gainNode.connect(destination);
+
+                // Update UI
+                isActive = true;
+                micButton.classList.add('active');
+                micButton.textContent = '🔴';
+                status.textContent = 'מיקרופון פעיל - הקול מועבר בזמן אמת';
+                status.classList.remove('inactive');
+                status.classList.add('active');
+
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                showError('שגיאה בגישה למיקרופון. אנא וודא שנתת הרשאה לשימוש במיקרופון.');
+            }
+        }
+
+        function stopMicrophone() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+            }
+
+            // Reset UI
+            isActive = false;
+            micButton.classList.remove('active');
+            micButton.textContent = '🎤';
+            status.textContent = 'מיקרופון כבוי';
+            status.classList.remove('active');
+            status.classList.add('inactive');
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isActive) {
+                // Optional: stop microphone when page is hidden to save battery
+                // stopMicrophone();
+            }
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (isActive) {
+                stopMicrophone();
+            }
+        });
+    </script>
+</body>
+</html>
